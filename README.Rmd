@@ -1,18 +1,21 @@
+---
+output: github_document
+---
 
 # RandomCure
 
 No arquivo `random_with_cure.R` estão implementadas duas funções:
 
-- `random_cure()`: gera dados de sobrevivência com cura aleatória. Nela
-  não é preciso conhecer a função quantílica, podendo apenas ser
-  informado a função de distribuição acumulada do modelo de
-  sobrevivência com fração de cura;
-- `plot_kaplan()`: constrói o gráfico de Kaplan-Meier de uma forma
-  fácil, bastando passar os dados e a cura.
+-   `random_cure()`: gera dados de sobrevivência com cura aleatória.
+    Nela não é preciso conhecer a função quantílica, podendo apenas ser
+    informado a função de distribuição acumulada do modelo de
+    sobrevivência com fração de cura;
+-   `plot_kaplan()`: constrói o gráfico de Kaplan-Meier de uma forma
+    fácil, bastando passar os dados e a cura.
 
 Segue abaixo um exemplo de uso:
 
-``` r
+```{r, warning=FALSE, message=FALSE}
 library(purrr) # install.packages("purrr")
 library(rlang) # install.packages("rlang")
 library(tibble) # install.packages("tibble")
@@ -159,11 +162,7 @@ log_likelihood <- function(t, delta, rho, a, shape, scale){
 }
 
 log_likelihood(t = dados$t, delta = dados$delta, rho = rho, a = a, shape = shape, scale = scale)
-```
 
-    ## [1] 631.8126
-
-``` r
 try_log_likelihood <- function(...) {
   tryCatch(
     log_likelihood(...),
@@ -187,5 +186,3 @@ p1 +
     aes(color = "Sobrevivência estimada")
   ) 
 ```
-
-![](README_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->
