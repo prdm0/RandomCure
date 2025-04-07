@@ -169,7 +169,7 @@ p1 +
 # Problema de identificabilidade
 
 # Fixar p0
-p0 <- 0.85
+p0 <- 0.62
 
 # Gerar vários valores possíveis de rho
 rho_vals <- seq(0.1, 10, by = 0.1)
