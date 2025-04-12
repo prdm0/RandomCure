@@ -140,9 +140,30 @@ scale <- 2.5
 cura <- rho / (a + rho) # rho > 2
 
 dados <- 
-  random_cure(n = 1000L,
+  random_cure(
+    n = 1000L,
     surv = surv_wfm_random_weibull,
     args_model = c(rho = rho, a = a, shape = shape, scale = scale)
   )
 
 plot_kaplan(dados, cura_real = cura)
+
+# Testando com a Dagum defeituosa ----------------------------------------
+
+surv_dagum <- function(t, theta, beta, alpha){
+  1 - theta * beta/(beta + theta * t^(-alpha))
+}
+
+theta <- 0.6
+beta = 1.2
+alpha <- 2.5
+
+dados <- 
+  random_cure(
+    n = 1000L,
+    surv = surv_dagum,
+    args_model = c(theta = theta, beta = beta, alpha = alpha)
+  )
+
+plot_kaplan(dados, cura_real = 1 - theta)
+
