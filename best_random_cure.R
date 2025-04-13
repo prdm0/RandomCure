@@ -5,7 +5,10 @@ library(survival)
 library(ggplot2)
 
 # Função usada para construir o Kaplan-Meier mais fácil no ggplot2
-plot_kaplan <- function(dados, cura_real = NULL) {
+plot_kaplan <- function(dados, surv, ...) {
+
+  cura_real <- surv(.Machine$double.xmax, ...)
+
   dados_surv <- Surv(time = dados$t, event = dados$delta)
   km_fit <- survfit(dados_surv ~ 1)
 
@@ -68,21 +71,39 @@ random_cure <-
            args_censoring_cdf = NULL, # Lista de valores dos argumentos da distribução da censura.
            args_model) {
     
-    find_cure_limit <- function(surv, args_model, tol = 1e-6, t_init = 10, t_max = 1e5) {
-      s <- purrr::partial(surv, !!!args_model)
-      pi_hat <- s(t_max)  # aproximação da fração de cura no infinito
-      
-      f <- function(t) abs(s(t) - pi_hat) < tol
-      
-      # Busca binária ou exponencial para achar ponto de convergência
-      t <- t_init
-      while (t < t_max && !f(t)) {
-        t <- t * 2
+    find_cure_limit <- function(surv, args_model, tol = 1e-6, tol_time = 1e-6, t_init = 10, t_max = 1e5) {
+      s <- function(t) do.call(surv, c(list(t), args_model))
+    
+      # Aproximação da fração de cura
+      pi_hat <- s(t_max)
+    
+      # Busca exponencial para achar intervalo
+      t_lower <- t_init
+      t_upper <- t_lower
+    
+      repeat {
+        diff <- abs(s(t_upper) - pi_hat)
+        if (diff < tol || t_upper >= t_max) break
+        t_lower <- t_upper
+        t_upper <- min(t_upper * 2, t_max)
       }
-      
-      return(t)
+    
+      if (t_upper >= t_max && abs(s(t_upper) - pi_hat) > tol) return(NA_real_)
+    
+      # Busca binária refinada
+      while ((t_upper - t_lower) > tol_time) {
+        t_mid <- 0.5 * (t_lower + t_upper)
+        s_mid <- s(t_mid)
+        if (abs(s_mid - pi_hat) < tol) {
+          t_upper <- t_mid
+        } else {
+          t_lower <- t_mid
+        }
+      }
+    
+      return(t_upper)
     }
-
+  
     upper <- find_cure_limit(surv = surv, args_model)
     
     find_root <- function(u, func) {
@@ -146,7 +167,14 @@ dados <-
     args_model = c(rho = rho, a = a, shape = shape, scale = scale)
   )
 
-plot_kaplan(dados, cura_real = cura)
+plot_kaplan(
+  dados, 
+  surv = surv_wfm_random_weibull,
+  rho = rho,
+  a = a,
+  shape = shape,
+  scale = scale
+)
 
 # Testando com a Dagum defeituosa ----------------------------------------
 
@@ -160,10 +188,17 @@ alpha <- 2.5
 
 dados <- 
   random_cure(
-    n = 1000L,
+    n = 500L,
     surv = surv_dagum,
     args_model = c(theta = theta, beta = beta, alpha = alpha)
   )
 
-plot_kaplan(dados, cura_real = 1 - theta)
+# Plotando facilmente o Kaplan-Meier -------------------------------------
+plot_kaplan(
+  dados, 
+  surv = surv_dagum, 
+  theta = theta, 
+  alpha = alpha, 
+  beta = beta
+)
 
