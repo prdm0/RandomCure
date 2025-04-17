@@ -69,7 +69,8 @@ random_cure <-
            surv,
            censoring_cdf = NULL, # Se não for passada, é a distribuição uniforme (censura não-informativa)
            args_censoring_cdf = NULL, # Lista de valores dos argumentos da distribução da censura.
-           args_model) {
+           args_model,
+           t_max = NULL) {
     
     find_cure_limit <- function(surv, args_model, tol = 1e-6, tol_time = 1e-6, t_init = 10, t_max = 1e5) {
       s <- function(t) do.call(surv, c(list(t), args_model))
@@ -100,8 +101,9 @@ random_cure <-
           t_lower <- t_mid
         }
       }
-    
-      return(t_upper)
+      # Retorna o menor valor de t tal que a sobrevivência converge 
+      # para cura do modelo.
+      return(t_upper) 
     }
   
     upper <- find_cure_limit(surv = surv, args_model)
@@ -140,7 +142,10 @@ random_cure <-
     # curados.
     real_t <- ifelse(c, yes = t, no = .Machine$double.xmax)
 
-    t_max <- max(t * c)
+    if(is.null(t_max)){
+      t_max <- max(t * c)
+    } 
+
     if (is.function(censoring_cdf)) {
       quantile_censoring <- purrr::partial(.f = find_root, censoring_cdf, !!!args_censoring_cdf)
       time_c <- quantile_censoring(u)      
@@ -155,7 +160,7 @@ random_cure <-
 
 # Dados verdadeiros
 rho <- 2.5 # rho > 2
-a <- 4.5
+a <- 1.5
 shape <- 1.5
 scale <- 2.5
 cura <- rho / (a + rho) # rho > 2
@@ -164,7 +169,8 @@ dados <-
   random_cure(
     n = 1000L,
     surv = surv_wfm_random_weibull,
-    args_model = c(rho = rho, a = a, shape = shape, scale = scale)
+    args_model = c(rho = rho, a = a, shape = shape, scale = scale),
+    t_max = 25
   )
 
 plot_kaplan(
@@ -175,6 +181,11 @@ plot_kaplan(
   shape = shape,
   scale = scale
 )
+
+dados |>
+  dplyr::group_by(delta) |> 
+  dplyr::summarise(n = dplyr::n(), prop = n/nrow(dados))
+
 
 # Testando com a Dagum defeituosa ----------------------------------------
 
@@ -190,7 +201,8 @@ dados <-
   random_cure(
     n = 500L,
     surv = surv_dagum,
-    args_model = c(theta = theta, beta = beta, alpha = alpha)
+    args_model = c(theta = theta, beta = beta, alpha = alpha),
+    t_max = NULL
   )
 
 # Plotando facilmente o Kaplan-Meier -------------------------------------
