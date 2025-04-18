@@ -154,7 +154,7 @@ random_cure <-
     }
     t_observed <- pmin(real_t, time_c)
     delta <- ifelse(t_observed < real_t, yes = 0L, no = 1L) # 1 para falha e 0 para censura
-
+    print(cure_fraction)
     return(tibble::tibble(t = t_observed, delta = delta))
   }
 
@@ -163,7 +163,6 @@ rho <- 2.5 # rho > 2
 a <- 1.5
 shape <- 1.5
 scale <- 2.5
-cura <- rho / (a + rho) # rho > 2
 
 dados <- 
   random_cure(
@@ -182,11 +181,6 @@ plot_kaplan(
   scale = scale
 )
 
-dados |>
-  dplyr::group_by(delta) |> 
-  dplyr::summarise(n = dplyr::n(), prop = n/nrow(dados))
-
-
 # Testando com a Dagum defeituosa ----------------------------------------
 
 surv_dagum <- function(t, theta, beta, alpha){
@@ -199,11 +193,17 @@ alpha <- 2.5
 
 dados <- 
   random_cure(
-    n = 500L,
+    n = 1000L,
     surv = surv_dagum,
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    t_max = NULL
+    t_max = 0.5
   )
+
+  dados |>
+    dplyr::group_by(delta) |> 
+    dplyr::summarise(n = dplyr::n(), prop = n/nrow(dados))
+  
+  
 
 # Plotando facilmente o Kaplan-Meier -------------------------------------
 plot_kaplan(
