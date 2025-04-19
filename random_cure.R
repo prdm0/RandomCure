@@ -280,7 +280,7 @@ alpha <- 2.5
 set.seed(0)
 dados <-
   random_cure(
-    n = 1000L,
+    n = 10000L,
     surv = surv_dagum,
     quantile_function = q_dagum,
     censoring_cdf = pweibull,
