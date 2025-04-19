@@ -1,3 +1,6 @@
+library(ggplot2)
+library(survival)
+
 # Função usada para construir o Kaplan-Meier mais fácil no ggplot2
 plot_kaplan <- function(
   dados,
