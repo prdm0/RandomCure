@@ -64,8 +64,6 @@ random_cure <- function(
   n = 1L,
   quantile_function = NULL,
   surv,
-  censoring_cdf = NULL,
-  args_censoring_cdf = NULL,
   args_model,
   prop_cens = NULL
 ) {
@@ -137,7 +135,7 @@ random_cure <- function(
   t_observed <- numeric(n)
   delta <- integer(n)
 
-  # ✅ Curados censurados no tempo máximo
+  # Curados censurados no tempo máximo
   t_observed[idx_cure] <- t_max
   delta[idx_cure] <- 0L
 
@@ -180,7 +178,7 @@ dados <- random_cure(
   n = 1000L,
   surv = surv_dagum,
   args_model = c(theta = theta, beta = beta, alpha = alpha),
-  prop_cens = 0.4 # Proporção de censura
+  prop_cens = 0.1 # Proporção de censura
 )
 
 # Proporção de censura observada
