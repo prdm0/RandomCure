@@ -286,7 +286,7 @@ dados <-
     censoring_cdf = pweibull,
     args_censoring_cdf = list(shape = 1.5, scale = 1.3),
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    t_max = 0.5
+    t_max = NULL
   )
 
 plot_kaplan(
