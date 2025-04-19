@@ -5,12 +5,33 @@ library(survival)
 library(ggplot2)
 
 # Função usada para construir o Kaplan-Meier mais fácil no ggplot2
-plot_kaplan <- function(dados, surv, ...) {
-  cura_real <- surv(.Machine$double.xmax, ...)
+plot_kaplan <- function(
+  dados,
+  surv,
+  title = "Kaplan-Meier Survival Curve",
+  xlab = "Time",
+  ylab = "Survival Probability",
+  color = "#1F77B4",
+  ci_color = "#1F77B4",
+  cure_color = "#D62728", # Vivid red
+  base_size = 11,
+  ci_alpha = 0.2,
+  line_size = 0.7,
+  show_cure = TRUE,
+  cure_label = "Cure fraction: ",
+  ...
+) {
+  require(ggplot2)
+  require(survival)
 
+  # Calculate cure probability
+  cure_prob <- surv(.Machine$double.xmax, ...)
+
+  # Fit Kaplan-Meier model
   dados_surv <- Surv(time = dados$t, event = dados$delta)
   km_fit <- survfit(dados_surv ~ 1)
 
+  # Prepare plot data
   km_data <- data.frame(
     time = km_fit$time,
     surv = km_fit$surv,
@@ -18,26 +39,107 @@ plot_kaplan <- function(dados, surv, ...) {
     lower = km_fit$lower
   )
 
-  ggplot(km_data, aes(x = time, y = surv)) +
-    geom_step() +
-    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
-    labs(
-      x = "Tempo",
-      y = "Probabilidade de Sobrevivência",
-      title = "Curva de Kaplan-Meier"
-    ) +
-    stat_summary(
-      geom = "line",
-      fun = \(i) cura_real,
-      aes(color = "Cura real"),
-      linewidth = 1.5,
-      linetype = 2
-    ) +
-    scale_y_continuous(limits = c(0, 1), n.breaks = 10) +
-    labs(x = "t") +
-    guides(color = guide_legend(title = ""))
-}
+  max_time <- max(km_data$time)
 
+  # Create legend data
+  legend_data <- data.frame(
+    label = c("Kaplan-Meier", "Cure fraction"),
+    color = c(color, cure_color),
+    linetype = c("solid", "solid")
+  )
+
+  # Create base plot
+  p <- ggplot(km_data, aes(x = time)) +
+    # Confidence interval
+    geom_ribbon(
+      aes(ymin = lower, ymax = upper),
+      fill = ci_color,
+      alpha = ci_alpha
+    ) +
+    # Main survival curve
+    geom_step(aes(y = surv), color = color, linewidth = line_size) +
+    # Cure line
+    {
+      if (show_cure)
+        annotate(
+          "segment",
+          x = 0,
+          xend = max_time,
+          y = cure_prob,
+          yend = cure_prob,
+          color = cure_color,
+          linewidth = line_size,
+          linetype = "solid"
+        )
+    } +
+    # Scales
+    scale_y_continuous(
+      limits = c(0, 1),
+      breaks = seq(0, 1, 0.2),
+      expand = c(0, 0.02)
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
+    # Legend
+    geom_segment(
+      data = legend_data,
+      aes(
+        x = max_time * 0.7,
+        xend = max_time * 0.75,
+        y = 0.95 - (0:1) * 0.08,
+        yend = 0.95 - (0:1) * 0.08,
+        color = color,
+        linetype = linetype
+      ),
+      linewidth = line_size
+    ) +
+    geom_text(
+      data = legend_data,
+      aes(x = max_time * 0.78, y = 0.95 - (0:1) * 0.08, label = label),
+      hjust = 0,
+      size = base_size / 3
+    ) +
+    scale_color_identity() +
+    scale_linetype_identity() +
+    # Labels
+    labs(
+      x = xlab,
+      y = ylab,
+      title = title,
+      subtitle = if (show_cure)
+        paste0(cure_label, format(round(cure_prob, 4), nsmall = 1)) else NULL
+    ) +
+    # Theme
+    theme_minimal(base_size = base_size) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(
+        linewidth = 0.3,
+        color = "#D3D3D3",
+        linetype = "dashed"
+      ),
+      axis.line = element_line(color = "black", linewidth = 0.4),
+      axis.ticks = element_line(color = "black", linewidth = 0.4),
+      plot.title = element_text(
+        hjust = 0,
+        face = "bold",
+        size = base_size + 2,
+        margin = margin(b = 5)
+      ),
+      plot.subtitle = element_text(
+        hjust = 0,
+        face = "bold",
+        color = "black",
+        size = base_size,
+        margin = margin(b = 10)
+      ),
+      legend.position = "none",
+      plot.margin = margin(10, 15, 10, 10),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA)
+    )
+
+  return(p)
+}
 # Waring Fragility Model - Random Activation
 # G is the baseline distribution
 # rho > 2. Se rho < 2, a variância da distribuição é infinita.
@@ -121,7 +223,7 @@ random_cure <-
 
     upper <- find_cure_limit(surv = surv, args_model)
 
-    find_root <- function(u, func) {
+    find_root_scalar <- function(u, func) {
       uniroot(
         \(t) func(t) - u,
         lower = 0,
@@ -134,7 +236,15 @@ random_cure <-
     surv <- purrr::partial(.f = surv, !!!args_model)
     cure_fraction <- surv(.Machine$double.xmax)
 
-    find_root <- Vectorize(FUN = find_root, vectorize.args = c("u"))
+    find_root <- function(u, func) {
+      vapply(
+        X = u,
+        FUN = function(u) find_root_scalar(u, func),
+        FUN.VALUE = numeric(1)
+      )
+    }
+
+    # find_root <- Vectorize(FUN = find_root_scalar, vectorize.args = c("u"))
 
     if (is.function(quantile_function)) {
       quantile_function <- purrr::partial(.f = quantile_function, !!!args_model)
@@ -144,7 +254,7 @@ random_cure <-
       quantile_function <- purrr::partial(.f = find_root, func = surv)
     } else {
       stop(
-        "Invalid input: You must provide either a valid quantile function (quantile_function) or a cumulative distribution function (cdf)."
+        "Invalid input: You must provide either a valid quantile function (quantile_function) and/or a survival function (surv)."
       )
     }
 
@@ -165,23 +275,26 @@ random_cure <-
     if (is.function(censoring_cdf)) {
       censoring_cdf <- purrr::partial(.f = censoring_cdf, !!!args_censoring_cdf)
 
-      quantile_censoring_single <- purrr::partial(
-        .f = find_root,
-        func = censoring_cdf
-      )
+      # Função vetorizada que já considera t_max
+      quantile_censoring <- function(u) {
+        # Ajusta os valores de u para não ultrapassar censoring_cdf(t_max)
+        u_adjusted <- u * censoring_cdf(t_max)
 
-      # Garante que o tempo de censura nunca ultrapasse t_max
-      generate_censored_time <- function(u) {
-        repeat {
-          t <- quantile_censoring_single(u)
-          if (t <= t_max) break
-          u <- runif(1) # novo u aleatório
-        }
-        t
+        # Encontra todos os roots de uma vez (mais eficiente)
+        vapply(
+          X = u_adjusted,
+          FUN = \(p) {
+            uniroot(
+              \(t) censoring_cdf(t) - p,
+              lower = 0,
+              upper = t_max * 10, # Limite ampliado para evitar falhas
+              tol = .Machine$double.eps^0.5,
+              extendInt = "upX"
+            )$root
+          },
+          FUN.VALUE = double(1L)
+        )
       }
-
-      # Vetoriza corretamente
-      quantile_censoring <- Vectorize(generate_censored_time)
 
       time_c <- quantile_censoring(runif(n = n))
     } else {
@@ -201,12 +314,13 @@ a <- 1.5
 shape <- 1.5
 scale <- 2.5
 
+set.seed(0)
 dados <-
   random_cure(
     n = 1000L,
     surv = surv_wfm_random_weibull,
     args_model = c(rho = rho, a = a, shape = shape, scale = scale),
-    t_max = 25
+    t_max = NULL
   )
 
 plot_kaplan(
@@ -224,10 +338,11 @@ surv_dagum <- function(t, theta, beta, alpha) {
   1 - theta * beta / (beta + theta * t^(-alpha))
 }
 
-theta <- 0.6
+theta <- 0.61
 beta = 1.2
 alpha <- 2.5
 
+set.seed(0)
 dados <-
   random_cure(
     n = 1000L,
@@ -262,6 +377,7 @@ theta <- 0.4
 beta = 1.2
 alpha <- 2.5
 
+set.seed(0)
 dados <-
   random_cure(
     n = 1000L,
@@ -285,15 +401,27 @@ dados |>
 
 # Exemplo 4 (Dagum especificando quantilica e outra distribuição para a censura ----
 
+q_dagum <- function(u, theta, alpha, beta) {
+  ((u * theta) / (beta * (theta - u)))^(1 / alpha)
+}
+
+surv_dagum <- function(t, theta, beta, alpha) {
+  1 - theta * beta / (beta + theta * t^(-alpha))
+}
+
+theta <- 0.5
+beta = 1.2
+alpha <- 2.5
+
+set.seed(0)
 dados <-
   random_cure(
-    n = 2000L,
+    n = 1000L,
     surv = surv_dagum,
     quantile_function = q_dagum,
     censoring_cdf = pweibull,
-    args_censoring_cdf = list(shape = 1.2, scale = 1.5),
-    args_model = c(theta = theta, beta = beta, alpha = alpha),
-    t_max = NULL
+    args_censoring_cdf = list(shape = 1.5, scale = 1.3),
+    args_model = c(theta = theta, beta = beta, alpha = alpha)
   )
 
 plot_kaplan(
@@ -303,6 +431,7 @@ plot_kaplan(
   alpha = alpha,
   beta = beta
 )
+
 dados |>
   dplyr::group_by(delta) |>
   dplyr::summarise(n = dplyr::n(), prop = n / nrow(dados))
