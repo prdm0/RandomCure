@@ -1,6 +1,3 @@
-library(ggplot2)
-library(survival)
-
 # Função usada para construir o Kaplan-Meier mais fácil no ggplot2
 plot_kaplan <- function(
   dados,
@@ -10,7 +7,7 @@ plot_kaplan <- function(
   ylab = "Survival Probability",
   color = "#1F77B4",
   ci_color = "#1F77B4",
-  cure_color = "#D62728", # Vivid red
+  cure_color = "#D62728",
   base_size = 11,
   ci_alpha = 0.2,
   line_size = 0.7,
@@ -18,14 +15,17 @@ plot_kaplan <- function(
   cure_label = "Cure fraction: ",
   ...
 ) {
-  # Calculate cure probability
+  require(ggplot2)
+  require(survival)
+
+  # Fração de cura teórica
   cure_prob <- surv(.Machine$double.xmax, ...)
 
-  # Fit Kaplan-Meier model
+  # Kaplan-Meier
   dados_surv <- Surv(time = dados$t, event = dados$delta)
   km_fit <- survfit(dados_surv ~ 1)
 
-  # Prepare plot data
+  # Dados da curva
   km_data <- data.frame(
     time = km_fit$time,
     surv = km_fit$surv,
@@ -33,26 +33,28 @@ plot_kaplan <- function(
     lower = km_fit$lower
   )
 
+  # Remover o último ponto se ele for menor que a fração de cura
+  if (tail(km_data$surv, 1) < cure_prob) {
+    km_data <- km_data[-nrow(km_data), ]
+  }
+
   max_time <- max(km_data$time)
 
-  # Create legend data
+  # Legenda
   legend_data <- data.frame(
     label = c("Kaplan-Meier", "Cure fraction"),
     color = c(color, cure_color),
     linetype = c("solid", "solid")
   )
 
-  # Create base plot
+  # Gráfico
   p <- ggplot(km_data, aes(x = time)) +
-    # Confidence interval
     geom_ribbon(
       aes(ymin = lower, ymax = upper),
       fill = ci_color,
       alpha = ci_alpha
     ) +
-    # Main survival curve
     geom_step(aes(y = surv), color = color, linewidth = line_size) +
-    # Cure line
     {
       if (show_cure)
         annotate(
@@ -66,14 +68,8 @@ plot_kaplan <- function(
           linetype = "solid"
         )
     } +
-    # Scales
-    scale_y_continuous(
-      limits = c(0, 1),
-      breaks = seq(0, 1, 0.2),
-      expand = c(0, 0.02)
-    ) +
+    scale_y_continuous(limits = c(0, 1), expand = c(0, 0.02)) +
     scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
-    # Legend
     geom_segment(
       data = legend_data,
       aes(
@@ -94,15 +90,13 @@ plot_kaplan <- function(
     ) +
     scale_color_identity() +
     scale_linetype_identity() +
-    # Labels
     labs(
       x = xlab,
       y = ylab,
       title = title,
       subtitle = if (show_cure)
-        paste0(cure_label, format(round(cure_prob, 3), nsmall = 3)) else NULL
+        paste0(cure_label, format(round(cure_prob, 4), nsmall = 1)) else NULL
     ) +
-    # Theme
     theme_minimal(base_size = base_size) +
     theme(
       panel.grid.minor = element_blank(),
