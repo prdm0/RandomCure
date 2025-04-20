@@ -276,7 +276,7 @@ dados <-
     surv = surv_dagum,
     quantile_function = q_dagum,
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    prop_censoring = 0.1
+    prop_censoring = 0.32
   )
 
 plot_kaplan(
@@ -307,13 +307,13 @@ alpha <- 2.5
 set.seed(0)
 dados <-
   random_cure(
-    n = 1000L,
+    n = 5000L,
     surv = surv_dagum,
     quantile_function = q_dagum,
     censoring_cdf = pweibull,
-    args_censoring_cdf = list(shape = 1.5, scale = 1.3),
+    args_censoring_cdf = list(shape = 10.5, scale = 1.3),
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    prop_censoring = 0.3
+    prop_censoring = 0.1
   )
 
 plot_kaplan(

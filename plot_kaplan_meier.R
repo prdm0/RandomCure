@@ -47,10 +47,10 @@ plot_kaplan <- function(
   # Subtítulo informativo
   plot_subtitle <- if (show_cure) {
     bquote(
-      .(cure_label) * .(sprintf("%.4f", cure_prob)) ~ "+" ~
-        .(censoring_label) * .(sprintf("%.4f", additional_censoring)) ~
+      .(cure_label) * .(sprintf("%.3f", abs(cure_prob))) ~ "+" ~
+        .(censoring_label) * .(sprintf("%.3f", abs(additional_censoring))) ~
         "=" ~
-        .(sprintf("%.4f", total_censored))
+        .(sprintf("%.3f", total_censored))
     )
   }
 
