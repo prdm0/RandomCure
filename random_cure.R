@@ -43,7 +43,7 @@ random_cure <-
     censoring_cdf = NULL, # Se não for passada, é a distribuição uniforme (censura não-informativa)
     args_censoring_cdf = NULL, # Lista de valores dos argumentos da distribução da censura.
     args_model,
-    t_max = NULL
+    prop_censoring = NULL
   ) {
     find_cure_limit <- function(
       surv,
@@ -104,12 +104,29 @@ random_cure <-
     find_root <- function(u, func) {
       vapply(
         X = u,
-        FUN = function(u) find_root_scalar(u, func),
-        FUN.VALUE = numeric(1)
+        FUN = \(u) find_root_scalar(u, func),
+        FUN.VALUE = double(1L)
       )
     }
 
-    # find_root <- Vectorize(FUN = find_root_scalar, vectorize.args = c("u"))
+    find_t_max <- function(surv, p_c, max_upper = upper) {
+      # Calcula a diferença entre a média de sobrevivência e p_c
+      objetivo <- function(t) {
+        mean_surv <- integrate(surv, 0, t)$value / t
+        mean_surv - p_c
+      }
+
+      # Encontra limite superior automaticamente
+      upper <- 1
+      while (objetivo(upper) > 0 && upper < max_upper) upper <- upper * 10
+
+      # Busca raiz segura
+      uniroot(
+        objetivo,
+        interval = c(.Machine$double.eps, upper),
+        extendInt = "downX"
+      )$root
+    }
 
     if (is.function(quantile_function)) {
       quantile_function <- purrr::partial(.f = quantile_function, !!!args_model)
@@ -133,8 +150,19 @@ random_cure <-
     # curados.
     real_t <- ifelse(c, yes = t, no = .Machine$double.xmax)
 
-    if (is.null(t_max)) {
+    if (is.null(prop_censoring)) {
       t_max <- max(t * c)
+    } else {
+      if (prop_censoring >= 1 - cure_fraction)
+        stop(sprintf(
+          "There is already an approximate cure fraction of %.2f. You can only define censoring < %.2f",
+          cure_fraction,
+          1 - cure_fraction
+        ))
+      t_max <- find_t_max(
+        surv = surv,
+        p_c = cure_fraction + prop_censoring # (A proporção de zeros é cure_fraction + prop_censoring)
+      )
     }
 
     if (is.function(censoring_cdf)) {
@@ -167,7 +195,7 @@ random_cure <-
 
     t_observed <- pmin(real_t, time_c)
     delta <- ifelse(t_observed < real_t, yes = 0L, no = 1L) # 1 para falha e 0 para censura
-    print(cure_fraction)
+    #print(cure_fraction)
     return(tibble::tibble(t = t_observed, delta = delta))
   }
 
@@ -184,7 +212,7 @@ dados <-
     n = 1000L,
     surv = surv_wfm_random_weibull,
     args_model = c(rho = rho, a = a, shape = shape, scale = scale),
-    t_max = NULL
+    prop_censoring = 0.1
   )
 
 plot_kaplan(
@@ -212,7 +240,7 @@ dados <-
     n = 1000L,
     surv = surv_dagum,
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    t_max = NULL
+    prop_censoring = 0.2
   )
 
 dados |>
@@ -248,7 +276,7 @@ dados <-
     surv = surv_dagum,
     quantile_function = q_dagum,
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    t_max = NULL
+    prop_censoring = 0.1
   )
 
 plot_kaplan(
@@ -261,7 +289,6 @@ plot_kaplan(
 dados |>
   dplyr::group_by(delta) |>
   dplyr::summarise(n = dplyr::n(), prop = n / nrow(dados))
-
 
 # Exemplo 4 (Dagum especificando quantilica e outra distribuição para a censura ----
 
@@ -280,13 +307,13 @@ alpha <- 2.5
 set.seed(0)
 dados <-
   random_cure(
-    n = 10000L,
+    n = 1000L,
     surv = surv_dagum,
     quantile_function = q_dagum,
     censoring_cdf = pweibull,
     args_censoring_cdf = list(shape = 1.5, scale = 1.3),
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    t_max = NULL
+    prop_censoring = 0.3
   )
 
 plot_kaplan(

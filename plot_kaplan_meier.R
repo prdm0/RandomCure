@@ -1,7 +1,6 @@
 library(ggplot2)
 library(survival)
 
-# Função usada para construir o Kaplan-Meier mais fácil no ggplot2
 plot_kaplan <- function(
   dados,
   surv,
@@ -15,16 +14,18 @@ plot_kaplan <- function(
   ci_alpha = 0.2,
   line_size = 0.7,
   show_cure = TRUE,
-  cure_label = "Cure fraction: ",
+  cure_label = "Cure: ",
+  censoring_label = "Censoring: ",
   ...
 ) {
-  require(ggplot2)
-  require(survival)
-
-  # Fração de cura teórica
+  # Teórica fração de cura
   cure_prob <- surv(.Machine$double.xmax, ...)
 
-  # Kaplan-Meier
+  # Proporções de censura
+  total_censored <- mean(dados$delta == 0)
+  additional_censoring <- total_censored - cure_prob
+
+  # Ajuste Kaplan-Meier
   dados_surv <- Surv(time = dados$t, event = dados$delta)
   km_fit <- survfit(dados_surv ~ 1)
 
@@ -36,21 +37,24 @@ plot_kaplan <- function(
     lower = km_fit$lower
   )
 
-  # Remover o último ponto se ele for menor que a fração de cura
+  # Remove queda final artificial, se necessário
   if (tail(km_data$surv, 1) < cure_prob) {
     km_data <- km_data[-nrow(km_data), ]
   }
 
   max_time <- max(km_data$time)
 
-  # Legenda
-  legend_data <- data.frame(
-    label = c("Kaplan-Meier", "Cure fraction"),
-    color = c(color, cure_color),
-    linetype = c("solid", "solid")
-  )
+  # Subtítulo informativo
+  plot_subtitle <- if (show_cure) {
+    bquote(
+      .(cure_label) * .(sprintf("%.4f", cure_prob)) ~ "+" ~
+        .(censoring_label) * .(sprintf("%.4f", additional_censoring)) ~
+        "=" ~
+        .(sprintf("%.4f", total_censored))
+    )
+  }
 
-  # Gráfico
+  # Construção do gráfico
   p <- ggplot(km_data, aes(x = time)) +
     geom_ribbon(
       aes(ymin = lower, ymax = upper),
@@ -58,76 +62,41 @@ plot_kaplan <- function(
       alpha = ci_alpha
     ) +
     geom_step(aes(y = surv), color = color, linewidth = line_size) +
-    {
-      if (show_cure)
-        annotate(
-          "segment",
-          x = 0,
-          xend = max_time,
-          y = cure_prob,
-          yend = cure_prob,
-          color = cure_color,
-          linewidth = line_size,
-          linetype = "solid"
-        )
-    } +
     scale_y_continuous(limits = c(0, 1), expand = c(0, 0.02)) +
     scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
-    geom_segment(
-      data = legend_data,
-      aes(
-        x = max_time * 0.7,
-        xend = max_time * 0.75,
-        y = 0.95 - (0:1) * 0.08,
-        yend = 0.95 - (0:1) * 0.08,
-        color = color,
-        linetype = linetype
-      ),
-      linewidth = line_size
-    ) +
-    geom_text(
-      data = legend_data,
-      aes(x = max_time * 0.78, y = 0.95 - (0:1) * 0.08, label = label),
-      hjust = 0,
-      size = base_size / 3
-    ) +
-    scale_color_identity() +
-    scale_linetype_identity() +
     labs(
       x = xlab,
       y = ylab,
       title = title,
-      subtitle = if (show_cure)
-        paste0(cure_label, format(round(cure_prob, 4), nsmall = 1)) else NULL
+      subtitle = plot_subtitle
     ) +
     theme_minimal(base_size = base_size) +
     theme(
-      panel.grid.minor = element_blank(),
-      panel.grid.major = element_line(
-        linewidth = 0.3,
-        color = "#D3D3D3",
-        linetype = "dashed"
-      ),
-      axis.line = element_line(color = "black", linewidth = 0.4),
-      axis.ticks = element_line(color = "black", linewidth = 0.4),
-      plot.title = element_text(
-        hjust = 0,
-        face = "bold",
-        size = base_size + 2,
-        margin = margin(b = 5)
-      ),
+      plot.title = element_text(face = "bold", hjust = 0, size = base_size + 2),
       plot.subtitle = element_text(
-        hjust = 0,
         face = "bold",
+        hjust = 0,
         color = "black",
         size = base_size,
         margin = margin(b = 10)
       ),
-      legend.position = "none",
-      plot.margin = margin(10, 15, 10, 10),
-      panel.background = element_rect(fill = "white", color = NA),
-      plot.background = element_rect(fill = "white", color = NA)
+      axis.title.x = element_text(face = "bold"),
+      axis.title.y = element_text(face = "bold")
     )
+
+  # Adiciona linha da fração de cura com annotate()
+  if (show_cure) {
+    p <- p +
+      annotate(
+        "segment",
+        x = 0,
+        xend = max_time,
+        y = cure_prob,
+        yend = cure_prob,
+        color = cure_color,
+        linewidth = line_size
+      )
+  }
 
   return(p)
 }
