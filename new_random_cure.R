@@ -51,7 +51,7 @@ random_cure <- function(
   prop_zeros = NULL # proporção total de zeros (cura + censura)
 ) {
   # 1) fração de cura
-  surv_fn <- partial(surv, !!!args_model)
+  surv_fn <- purrr::partial(surv, !!!args_model)
   cure_fraction <- surv_fn(.Machine$double.xmax)
 
   # 2) default de prop_zeros
@@ -60,8 +60,9 @@ random_cure <- function(
   }
   if (prop_zeros < cure_fraction || prop_zeros > 1) {
     stop(sprintf(
-      "valor inválido: prop_zeros = %.3f; deve estar entre cure_fraction = %.3f e 1.",
+      "valor inválido para prop_zeros = %.3f (%.3f <= prop_zeros <= 1), pois cure_fraction = %.3f!",
       prop_zeros,
+      cure_fraction,
       cure_fraction
     ))
   }
@@ -76,14 +77,19 @@ random_cure <- function(
     T_true <- vapply(
       U1,
       function(u) {
-        uniroot(function(t) surv_fn(t) - u, lower = 0, upper = 1e6)$root
+        uniroot(
+          function(t) surv_fn(t) - u,
+          lower = 0,
+          upper = 1e6,
+          extendInt = "downX"
+        )$root
       },
       double(1)
     )
   }
 
   # 4) curados vs suscetíveis
-  is_susc <- rbinom(n, 1, 1 - cure_fraction) == 1
+  is_susc <- rbinom(n, 1L, 1 - cure_fraction) == 1L
   T_true[!is_susc] <- Inf
 
   # 5) define fração de censura entre suscetíveis
@@ -99,7 +105,7 @@ random_cure <- function(
 
     if (!is.null(censoring_cdf) && !is.null(args_censoring_cdf)) {
       # inverte pela raiz na CDF
-      F_c <- partial(censoring_cdf, !!!args_censoring_cdf)
+      F_c <- purrr::partial(censoring_cdf, !!!args_censoring_cdf)
       U2 <- runif(k)
       Fc_T <- F_c(T_true[cens_idx])
       p0 <- U2 * Fc_T # garante C < T_true
@@ -122,7 +128,7 @@ random_cure <- function(
     }
   }
 
-  # 7) observado e indicador δ
+  # 7) observado e variável indicadora delta
   T_obs <- pmin(T_true, T_cens)
   delta <- as.integer((T_true <= T_cens) & is_susc)
 
@@ -241,9 +247,9 @@ dados <-
     surv = surv_dagum,
     quantile_function = q_dagum,
     censoring_cdf = pweibull,
-    args_censoring_cdf = list(shape = 10.5, scale = 1.3),
+    args_censoring_cdf = list(shape = 2.5, scale = 2.3),
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    prop_zeros = 0.55
+    prop_zeros = 0.6
   )
 
 plot_kaplan(
