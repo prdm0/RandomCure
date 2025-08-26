@@ -1,10 +1,7 @@
-library(ggplot2)
-library(survival)
-
 plot_kaplan <- function(
   dados,
   surv,
-  title = "Kaplan-Meier Survival Curve",
+  title = "Kaplan–Meier Survival Curve",
   xlab = "Time",
   ylab = "Survival Probability",
   color = "#1F77B4",
@@ -14,22 +11,30 @@ plot_kaplan <- function(
   ci_alpha = 0.2,
   line_size = 0.7,
   show_cure = TRUE,
-  cure_label = "Cure: ",
-  censoring_label = "Censoring: ",
+  show_percent = TRUE,
+  cure_label = "Theoretical cure (π): ",
+  extra_label = "Extra censoring among susceptibles: ",
+  total_label = "Overall no-event proportion (δ=0): ",
   ...
 ) {
-  # Teórica fração de cura
-  cure_prob <- surv(.Machine$double.xmax, ...)
+  # Cure fraction
+  cure_prob <- tryCatch(
+    do.call(surv, c(list(.Machine$double.xmax), list(...))),
+    error = function(e) surv(.Machine$double.xmax, ...)
+  )
 
-  # Proporções de censura
-  total_censored <- mean(dados$delta == 0)
-  additional_censoring <- total_censored - cure_prob
+  # Proportions
+  overall_zeros <- mean(dados$delta == 0)
+  extra_censor <- overall_zeros - cure_prob
+  extra_censor <- max(0, extra_censor)
 
-  # Ajuste Kaplan-Meier
+  fmt <- function(x) {
+    if (show_percent) sprintf("%.1f%%", 100 * x) else sprintf("%.3f", x)
+  }
+
+  # KM fit
   dados_surv <- Surv(time = dados$t, event = dados$delta)
   km_fit <- survfit(dados_surv ~ 1)
-
-  # Dados da curva
   km_data <- data.frame(
     time = km_fit$time,
     surv = km_fit$surv,
@@ -37,24 +42,28 @@ plot_kaplan <- function(
     lower = km_fit$lower
   )
 
-  # Remove queda final artificial, se necessário
-  if (tail(km_data$surv, 1) < cure_prob) {
+  if (nrow(km_data) > 0 && tail(km_data$surv, 1) < cure_prob) {
     km_data <- km_data[-nrow(km_data), ]
   }
+  max_time <- if (nrow(km_data)) max(km_data$time) else 0
 
-  max_time <- max(km_data$time)
-
-  # Subtítulo informativo
+  # Subtitle: multiline
   plot_subtitle <- if (show_cure) {
-    bquote(
-      .(cure_label) * .(sprintf("%.3f", abs(cure_prob))) ~ "+" ~
-        .(censoring_label) * .(sprintf("%.3f", abs(additional_censoring))) ~
-        "=" ~
-        .(sprintf("%.3f", total_censored))
+    paste0(
+      cure_label,
+      fmt(cure_prob),
+      "\n",
+      extra_label,
+      fmt(extra_censor),
+      "\n",
+      total_label,
+      fmt(overall_zeros)
     )
+  } else {
+    NULL
   }
 
-  # Construção do gráfico
+  # Plot
   p <- ggplot(km_data, aes(x = time)) +
     geom_ribbon(
       aes(ymin = lower, ymax = upper),
@@ -64,12 +73,7 @@ plot_kaplan <- function(
     geom_step(aes(y = surv), color = color, linewidth = line_size) +
     scale_y_continuous(limits = c(0, 1), expand = c(0, 0.02)) +
     scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
-    labs(
-      x = xlab,
-      y = ylab,
-      title = title,
-      subtitle = plot_subtitle
-    ) +
+    labs(x = xlab, y = ylab, title = title, subtitle = plot_subtitle) +
     theme_minimal(base_size = base_size) +
     theme(
       plot.title = element_text(face = "bold", hjust = 0, size = base_size + 2),
@@ -84,8 +88,7 @@ plot_kaplan <- function(
       axis.title.y = element_text(face = "bold")
     )
 
-  # Adiciona linha da fração de cura com annotate()
-  if (show_cure) {
+  if (show_cure && is.finite(max_time) && max_time > 0) {
     p <- p +
       annotate(
         "segment",
@@ -97,6 +100,5 @@ plot_kaplan <- function(
         linewidth = line_size
       )
   }
-
   return(p)
 }

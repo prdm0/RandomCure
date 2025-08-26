@@ -98,6 +98,145 @@ pdf_wfm_random_weibull <- desity_wfm_random(g = dweibull)
 #' )
 #' }
 #' @export
+# random_cure <- function(
+#   n = 1L,
+#   quantile_function = NULL,
+#   surv,
+#   censoring_cdf = NULL,
+#   args_censoring_cdf = NULL,
+#   args_model,
+#   prop_zeros = NULL
+# ) {
+#   # Essa função apenas busca um valor de t, chamado upper,
+#   # tal que surv(upper) fornece a cura teórica do modelo.
+#   find_cure_limit <- function(
+#     surv,
+#     tol = 1e-6,
+#     tol_time = 1e-6,
+#     t_init = 10,
+#     t_max = 1e5
+#   ) {
+#     # Aproximação da fração de cura
+#     pi_hat <- surv(t_max)
+
+#     # Busca exponencial para achar intervalo
+#     t_lower <- t_init
+#     t_upper <- t_lower
+
+#     repeat {
+#       diff <- abs(surv(t_upper) - pi_hat)
+#       if (diff < tol || t_upper >= t_max) {
+#         break
+#       }
+#       t_lower <- t_upper
+#       t_upper <- min(t_upper * 2, t_max)
+#     }
+
+#     if (t_upper >= t_max && abs(surv(t_upper) - pi_hat) > tol) {
+#       return(NA_real_)
+#     }
+
+#     # Busca binária refinada
+#     while ((t_upper - t_lower) > tol_time) {
+#       t_mid <- 0.5 * (t_lower + t_upper)
+#       s_mid <- surv(t_mid)
+#       if (abs(s_mid - pi_hat) < tol) {
+#         t_upper <- t_mid
+#       } else {
+#         t_lower <- t_mid
+#       }
+#     }
+#     # Retorna o menor valor de t tal que a sobrevivência converge
+#     # para cura do modelo.
+#     t_upper
+#   }
+
+#   surv <- purrr::partial(surv, !!!args_model)
+#   upper <- find_cure_limit(surv = surv)
+#   cure_fraction <- surv(upper * 10)
+
+#   # Default: se não especificar, prop_zeros = fração de cura
+#   if (is.null(prop_zeros)) {
+#     prop_zeros <- cure_fraction
+#   }
+#   if (prop_zeros < cure_fraction || prop_zeros > 1) {
+#     stop(sprintf(
+#       "valor inválido para prop_zeros = %.3f (%.3f <= prop_zeros <= 1), pois cure_fraction = %.3f!",
+#       prop_zeros,
+#       cure_fraction,
+#       cure_fraction
+#     ))
+#   }
+
+#   # Root-finding para quantis sem vetorizar diretamente
+#   find_root_no_vec <- function(u, func) {
+#     uniroot(
+#       \(t) func(t) - u,
+#       lower = 0,
+#       upper = upper,
+#       tol = .Machine$double.eps^0.5
+#     )$root
+#   }
+#   find_root <- function(u, func) {
+#     vapply(
+#       X = u,
+#       FUN = \(ui) find_root_no_vec(ui, func),
+#       FUN.VALUE = double(1)
+#     )
+#   }
+
+#   if (is.function(censoring_cdf)) {
+#     censoring_cdf <- purrr::partial(censoring_cdf, !!!args_censoring_cdf)
+#   }
+
+#   # Quantil de T
+#   if (is.function(quantile_function)) {
+#     quantile_function_real_time <- function(n) {
+#       q <- purrr::partial(quantile_function, !!!args_model)
+#       q(runif(n, 0, 1 - cure_fraction))
+#     }
+#   } else {
+#     quantile_function_real_time <- function(n) {
+#       u <- cure_fraction + (1 - cure_fraction) * runif(n)
+#       purrr::partial(find_root, func = surv)(u)
+#     }
+#   }
+
+#   # Quantil de C
+#   if (is.function(censoring_cdf)) {
+#     quantile_function_censoring <- function(t_i) {
+#       u <- runif(length(t_i), 0, censoring_cdf(t_i))
+#       purrr::partial(find_root, func = censoring_cdf)(u)
+#     }
+#   } else {
+#     quantile_function_censoring <- function(t_i) {
+#       runif(length(t_i), 0, t_i)
+#     }
+#   }
+
+#   # Fração de censura entre suscetíveis
+#   p_c <- (prop_zeros - cure_fraction) / (1 - cure_fraction)
+
+#   # Geração dos tempos
+#   t_true <- quantile_function_real_time(n)
+#   m <- rbinom(n = n, size = 1L, prob = 1 - cure_fraction)
+#   t_true <- ifelse(m == 0L, Inf, t_true)
+
+#   # Seleção de quem será censurado
+#   k <- round(sum(m == 1L) * p_c)
+#   id <- sample(which(m == 1L), size = k)
+
+#   # Geração de t_c: vetor de Inf, preenchido apenas em `id`
+#   t_c <- rep(Inf, n)
+#   t_c[id] <- quantile_function_censoring(t_true[id])
+
+#   # Observação final e indicador de evento
+#   t <- pmin(t_true, t_c)
+#   delta <- ifelse(t_true < t_c, 1L, 0L)
+
+#   tibble(t = t, delta = delta)
+# }
+
 random_cure <- function(
   n = 1L,
   quantile_function = NULL,
@@ -105,10 +244,15 @@ random_cure <- function(
   censoring_cdf = NULL,
   args_censoring_cdf = NULL,
   args_model,
-  prop_zeros = NULL
+  prop_zeros = NULL,
+  # --- novos opcionais para controlar a censura dos curados ---
+  admin_mult = 1.25, # multiplica o maior T suscetível para definir censura tardia
+  use_cdf_for_cured = FALSE, # TRUE: usa a CDF de censura também para curados (enviesado para cauda)
+  cured_qmin = 0.90 # quantil mínimo (alto) se use_cdf_for_cured = TRUE
 ) {
-  # Essa função apenas busca um valor de t, chamado upper,
-  # tal que surv(upper) fornece a cura teórica do modelo.
+  #------------------------------------------------------------
+  # 1) Encontrar um "upper" grande para o domínio de S(t)
+  #------------------------------------------------------------
   find_cure_limit <- function(
     surv,
     tol = 1e-6,
@@ -116,34 +260,27 @@ random_cure <- function(
     t_init = 10,
     t_max = 1e5
   ) {
-    # Aproximação da fração de cura
-    pi_hat <- surv(t_max)
+    pi_hat <- surv(t_max) # aproximação de S(Inf)
 
-    # Busca exponencial para achar intervalo
     t_lower <- t_init
     t_upper <- t_lower
-
     repeat {
       diff <- abs(surv(t_upper) - pi_hat)
-      if (diff < tol || t_upper >= t_max) break
+      if (diff < tol || t_upper >= t_max) {
+        break
+      }
       t_lower <- t_upper
       t_upper <- min(t_upper * 2, t_max)
     }
+    if (t_upper >= t_max && abs(surv(t_upper) - pi_hat) > tol) {
+      return(NA_real_)
+    }
 
-    if (t_upper >= t_max && abs(surv(t_upper) - pi_hat) > tol) return(NA_real_)
-
-    # Busca binária refinada
     while ((t_upper - t_lower) > tol_time) {
       t_mid <- 0.5 * (t_lower + t_upper)
       s_mid <- surv(t_mid)
-      if (abs(s_mid - pi_hat) < tol) {
-        t_upper <- t_mid
-      } else {
-        t_lower <- t_mid
-      }
+      if (abs(s_mid - pi_hat) < tol) t_upper <- t_mid else t_lower <- t_mid
     }
-    # Retorna o menor valor de t tal que a sobrevivência converge
-    # para cura do modelo.
     t_upper
   }
 
@@ -151,7 +288,9 @@ random_cure <- function(
   upper <- find_cure_limit(surv = surv)
   cure_fraction <- surv(upper * 10)
 
-  # Default: se não especificar, prop_zeros = fração de cura
+  #------------------------------------------------------------
+  # 2) Validar prop_zeros
+  #------------------------------------------------------------
   if (is.null(prop_zeros)) {
     prop_zeros <- cure_fraction
   }
@@ -164,74 +303,137 @@ random_cure <- function(
     ))
   }
 
-  # Root-finding para quantis sem vetorizar diretamente
-  find_root_no_vec <- function(u, func) {
+  #------------------------------------------------------------
+  # 3) Utilidades de inversão (raiz) com upper flexível
+  #------------------------------------------------------------
+  find_root_scalar <- function(u, func, ub) {
     uniroot(
-      \(t) func(t) - u,
+      f = \(t) func(t) - u,
       lower = 0,
-      upper = upper,
+      upper = ub,
       tol = .Machine$double.eps^0.5
     )$root
   }
-  find_root <- function(u, func) {
-    vapply(
-      X = u,
-      FUN = \(ui) find_root_no_vec(ui, func),
-      FUN.VALUE = double(1)
-    )
+  invert_cdf <- function(u_vec, func, ub) {
+    vapply(u_vec, \(u) find_root_scalar(u, func, ub), numeric(1))
   }
 
+  #------------------------------------------------------------
+  # 4) Preparar CDF de censura (se fornecida)
+  #------------------------------------------------------------
   if (is.function(censoring_cdf)) {
     censoring_cdf <- purrr::partial(censoring_cdf, !!!args_censoring_cdf)
   }
 
-  # Quantil de T
+  #------------------------------------------------------------
+  # 5) Quantil de T (tempo verdadeiro para suscetíveis)
+  #------------------------------------------------------------
   if (is.function(quantile_function)) {
     quantile_function_real_time <- function(n) {
       q <- purrr::partial(quantile_function, !!!args_model)
+      # amostra apenas no segmento dos suscetíveis (massa 1 - pi)
       q(runif(n, 0, 1 - cure_fraction))
     }
   } else {
+    # inversão via sobrevivência: S(T) = u, u ~ (pi, 1)
     quantile_function_real_time <- function(n) {
       u <- cure_fraction + (1 - cure_fraction) * runif(n)
-      purrr::partial(find_root, func = surv)(u)
+      invert_cdf(u_vec = u, func = surv, ub = upper)
     }
   }
 
-  # Quantil de C
+  #------------------------------------------------------------
+  # 6) Quantil de C (para suscetíveis selecionados para censura)
+  #    - Se houver CDF: C | T=t  por inversão em [0, F_C(t)]
+  #    - Senão: U(0, t)
+  #------------------------------------------------------------
   if (is.function(censoring_cdf)) {
-    quantile_function_censoring <- function(t_i) {
-      u <- runif(length(t_i), 0, censoring_cdf(t_i))
-      purrr::partial(find_root, func = censoring_cdf)(u)
+    quantile_function_censoring_given_T <- function(t_i) {
+      Fc <- pmin(1, censoring_cdf(t_i))
+      u <- runif(length(t_i), 0, Fc)
+      # upper para inversão da censura: pode ser maior que 'upper' de S(t)
+      ub_cens <- max(upper, max(t_i[is.finite(t_i)], na.rm = TRUE), 1)
+      invert_cdf(u_vec = u, func = censoring_cdf, ub = ub_cens)
     }
   } else {
-    quantile_function_censoring <- function(t_i) {
+    quantile_function_censoring_given_T <- function(t_i) {
       runif(length(t_i), 0, t_i)
     }
   }
 
-  # Fração de censura entre suscetíveis
+  #------------------------------------------------------------
+  # 7) Fração de censura entre suscetíveis, geração de T e M
+  #------------------------------------------------------------
   p_c <- (prop_zeros - cure_fraction) / (1 - cure_fraction)
 
-  # Geração dos tempos
   t_true <- quantile_function_real_time(n)
+  # M=1 suscetível; M=0 curado
   m <- rbinom(n = n, size = 1L, prob = 1 - cure_fraction)
   t_true <- ifelse(m == 0L, Inf, t_true)
 
-  # Seleção de quem será censurado
+  #------------------------------------------------------------
+  # 8) Selecionar suscetíveis a censurar (k = round(N_susc * p_c))
+  #------------------------------------------------------------
   k <- round(sum(m == 1L) * p_c)
-  id <- sample(which(m == 1L), size = k)
+  id <- if (k > 0 && sum(m == 1L) > 0) {
+    sample(which(m == 1L), size = k)
+  } else {
+    integer(0)
+  }
 
-  # Geração de t_c: vetor de Inf, preenchido apenas em `id`
+  #------------------------------------------------------------
+  # 9) Construir vetor de censura t_c
+  #    - suscetíveis selecionados: censura a partir de CDF (ou U(0,T))
+  #    - curados: censura administrativa tardia (ou CDF enviesada p/ cauda)
+  #------------------------------------------------------------
   t_c <- rep(Inf, n)
-  t_c[id] <- quantile_function_censoring(t_true[id])
 
-  # Observação final e indicador de evento
+  # 9a) Censura dos suscetíveis sorteados
+  if (length(id)) {
+    t_c[id] <- quantile_function_censoring_given_T(t_true[id])
+  }
+
+  # 9b) Censura administrativa tardia para curados
+  idx_cured <- which(m == 0L)
+  if (length(idx_cured)) {
+    # horizonte administrativo baseado no maior T suscetível observado
+    t_max_susc <- if (any(is.finite(t_true[m == 1L]))) {
+      max(t_true[m == 1L], na.rm = TRUE)
+    } else {
+      upper
+    }
+    t_admin <- t_max_susc * admin_mult
+
+    if (is.function(censoring_cdf) && isTRUE(use_cdf_for_cured)) {
+      # usa CDF de censura mas força quantis altos (cauda) para manter platô do KM
+      u_min <- max(0, min(0.9999999999, cured_qmin))
+      u <- runif(length(idx_cured), min = u_min, max = 0.9999999999)
+      ub_cens_global <- max(upper, t_admin * 2, 1)
+      t_c[idx_cured] <- invert_cdf(
+        u_vec = u,
+        func = censoring_cdf,
+        ub = ub_cens_global
+      )
+      # garante que não censure antes demais do administrativo alvo
+      t_c[idx_cured] <- pmax(t_c[idx_cured], 0.9 * t_admin)
+    } else {
+      # censura administrativa pura, tardia e tratável
+      # use ponto fixo (platô mais estável) ou pequena faixa alta (levemente aleatório)
+      # opção 1 (fixo): t_c[idx_cured] <- t_admin
+      # opção 2 (faixa tardia):
+      t_c[idx_cured] <- runif(length(idx_cured), 0.95 * t_admin, t_admin)
+    }
+  }
+
+  #------------------------------------------------------------
+  # 10) Observação final
+  #------------------------------------------------------------
   t <- pmin(t_true, t_c)
   delta <- ifelse(t_true < t_c, 1L, 0L)
 
-  tibble(t = t, delta = delta)
+  tibble::tibble(t = t, delta = delta)
 }
+
 
 # Teste rápido
 rho <- 2.5
@@ -245,6 +447,7 @@ dados <- random_cure(
   args_model = c(rho = rho, a = a, shape = shape, scale = scale),
   prop_zeros = NULL
 )
+
 plot_kaplan(
   dados,
   surv = surv_wfm_random_weibull,
@@ -292,7 +495,7 @@ alpha <- 2.5
 set.seed(0)
 dados <-
   random_cure(
-    n = 1000L,
+    n = 4000L,
     surv = surv_dagum,
     args_model = c(theta = theta, beta = beta, alpha = alpha),
     prop_zeros = 0.5
@@ -368,7 +571,7 @@ dados <-
     censoring_cdf = pweibull,
     args_censoring_cdf = list(shape = 2.5, scale = 2.3),
     args_model = c(theta = theta, beta = beta, alpha = alpha),
-    prop_zeros = 0.6
+    prop_zeros = NULL
   )
 
 plot_kaplan(
